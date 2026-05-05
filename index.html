@@ -91,9 +91,9 @@
 */
 
 const DURATIONS = [
-  { ms: 60_000,        label: '1분',  copy: '바쁘게 가는 나그네'   },
-  { ms: 3 * 60_000,    label: '3분',  copy: '느릿느릿 걸어가는 나그네' },
-  { ms: 10 * 60_000,   label: '10분', copy: '명상하며 걸어가는 나그네' },
+  { ms: 60_000,        label: '1분',  copy: '바쁘게 가는 나그네',     movingCopy: '아 맞다, 휴대폰' },
+  { ms: 3 * 60_000,    label: '3분',  copy: '느릿느릿 걸어가는 나그네', movingCopy: '아 맞다, 가스불' },
+  { ms: 10 * 60_000,   label: '10분', copy: '명상하며 걸어가는 나그네', movingCopy: '아 맞다, 우산'   },
 ];
 
 const W = 220, H = 360;
@@ -117,8 +117,9 @@ function pathPoint(t) {
 }
 
 class Walker {
-  constructor(cardEl, totalMs) {
+  constructor(cardEl, totalMs, movingCopy) {
     this.totalMs = totalMs;
+    this.movingCopy = movingCopy;
     this.canvas = cardEl.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.btnEl = cardEl.querySelector('button');
@@ -145,14 +146,18 @@ class Walker {
       this.direction *= -1;
     }
     this.moving = true;
-    this.btnEl.textContent = '뒤집기';
+    this.refreshLabel();
+  }
+
+  refreshLabel() {
+    this.btnEl.textContent = this.moving ? this.movingCopy : '출발';
   }
 
   update(dt) {
     if (!this.moving) return;
     this.t += this.direction * (dt / this.totalMs);
-    if (this.t >= 1) { this.t = 1; this.moving = false; }
-    if (this.t <= 0) { this.t = 0; this.moving = false; }
+    if (this.t >= 1) { this.t = 1; this.moving = false; this.refreshLabel(); }
+    if (this.t <= 0) { this.t = 0; this.moving = false; this.refreshLabel(); }
   }
 
   render() {
@@ -284,10 +289,10 @@ for (const d of DURATIONS) {
     <div class="duration-label">${d.label}</div>
     <div class="duration-copy">${d.copy}</div>
     <div class="stage"><canvas></canvas></div>
-    <button>시작</button>
+    <button>출발</button>
   `;
   cardsEl.appendChild(card);
-  instances.push(new Walker(card, d.ms));
+  instances.push(new Walker(card, d.ms, d.movingCopy));
 }
 
 let prevT = null;
