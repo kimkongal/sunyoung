@@ -133,6 +133,7 @@ class Walker {
     this.direction = 1;    // +1: 출발점 → 도착점 / -1: 반대
     this.moving = false;
     this.started = false;
+    this.walkCount = 0;    // 걷기를 시작한 횟수 (1=첫 출발, 2+=되돌아가기)
     this.lastFacing = 1;   // 시각적 좌우 방향 (잔떨림 방지용 보존)
 
     this.btnEl.addEventListener('click', () => this.flip());
@@ -146,11 +147,18 @@ class Walker {
       this.direction *= -1;
     }
     this.moving = true;
+    this.walkCount++;
     this.refreshLabel();
   }
 
   refreshLabel() {
-    this.btnEl.textContent = this.moving ? this.movingCopy : '출발';
+    if (!this.moving) {
+      this.btnEl.textContent = '출발';
+    } else if (this.walkCount <= 1) {
+      this.btnEl.textContent = this.movingCopy;
+    } else {
+      this.btnEl.textContent = '되돌아가기';
+    }
   }
 
   update(dt) {
