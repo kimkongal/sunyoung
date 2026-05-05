@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>나그네 시계</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #14110d;
+    color: #e8d7b8;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    gap: 40px;
+    padding: 40px 20px;
+    user-select: none;
+  }
+  h1 {
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 6px;
+    color: #8a6f4a;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .cards {
+    display: flex;
+    gap: 36px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 220px;
+  }
+  .duration-label {
+    font-size: 12px;
+    letter-spacing: 4px;
+    color: #b89870;
+    text-transform: uppercase;
+  }
+  .duration-copy {
+    font-size: 12px;
+    color: #8a7560;
+    letter-spacing: 1px;
+    margin-top: -8px;
+    text-align: center;
+  }
+  .stage {
+    width: 220px;
+    height: 360px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas { width: 100%; height: 100%; display: block; }
+  button {
+    width: 100%;
+    padding: 12px 0;
+    font-size: 13px;
+    background: transparent;
+    color: #e8d7b8;
+    border: 1px solid #6a5535;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    letter-spacing: 3px;
+  }
+  button:hover { background: rgba(212, 165, 116, 0.08); border-color: #d4a574; }
+  button:active { transform: translateY(1px); }
+</style>
+</head>
+<body>
+  <h1>나그네</h1>
+  <div class="cards" id="cards"></div>
+
+<script>
+/*
+  - 길은 양 끝이 정해져 있고, 나그네는 그 위를 일정한 속도로 걷는다.
+  - 시작 = 첫 클릭 (인간 개입). 이후 클릭은 모두 "뒤집기" — 그 자리에서 방향만 바뀐다.
+  - 정지/리셋 없음. 갑자기 처음으로 되돌아갈 수 없음.
+  - 한쪽 끝 도착 시 멈춤, 별도 반응 없음.
+  - 진행도 표시(텍스트/막대) 없음.
+*/
+
+const DURATIONS = [
+  { ms: 60_000,        label: '1분',  copy: '바쁘게 가는 나그네'   },
+  { ms: 3 * 60_000,    label: '3분',  copy: '느릿느릿 걸어가는 나그네' },
+  { ms: 10 * 60_000,   label: '10분', copy: '명상하며 걸어가는 나그네' },
+];
+
+const W = 220, H = 360;
+const CX = W / 2;
+const TOP_Y = 30;
+const BOT_Y = H - 30;
+
+// 같은 모양의 길 — 시간 단위만 다름
+const PATH_CYCLES = 2.5;
+const PATH_AMP = 55;
+
+function pathPoint(t) {
+  // t ∈ [0, 1] — 0이 출발점(위), 1이 도착점(아래)
+  const y = TOP_Y + t * (BOT_Y - TOP_Y);
+  const phase = t * Math.PI * 2 * PATH_CYCLES;
+  const x = CX + PATH_AMP * Math.sin(phase);
+  // 접선
+  const dx = PATH_AMP * Math.cos(phase) * Math.PI * 2 * PATH_CYCLES;
+  const dy = BOT_Y - TOP_Y;
+  return { x, y, dx, dy };
+}
+
+class Walker {
+  constructor(cardEl, totalMs) {
+    this.totalMs = totalMs;
+    this.canvas = cardEl.querySelector('canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.btnEl = cardEl.querySelector('button');
+
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = W * dpr;
+    this.canvas.height = H * dpr;
+    this.ctx.scale(dpr, dpr);
+
+    this.t = 0;            // 길 위 위치 (0..1)
+    this.direction = 1;    // +1: 출발점 → 도착점 / -1: 반대
+    this.moving = false;
+    this.started = false;
+    this.lastFacing = 1;   // 시각적 좌우 방향 (잔떨림 방지용 보존)
+
+    this.btnEl.addEventListener('click', () => this.flip());
+  }
+
+  flip() {
+    if (!this.started) {
+      this.started = true;
+      this.direction = 1;
+    } else {
+      this.direction *= -1;
+    }
+    this.moving = true;
+    this.btnEl.textContent = '뒤집기';
+  }
+
+  update(dt) {
+    if (!this.moving) return;
+    this.t += this.direction * (dt / this.totalMs);
+    if (this.t >= 1) { this.t = 1; this.moving = false; }
+    if (this.t <= 0) { this.t = 0; this.moving = false; }
+  }
+
+  render() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, W, H);
+
+    // 길
+    ctx.strokeStyle = '#5a4a30';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const N = 160;
+    for (let i = 0; i <= N; i++) {
+      const tt = i / N;
+      const p = pathPoint(tt);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+
+    // 양 끝 표식 — 작은 돌
+    ctx.fillStyle = '#7a5f3a';
+    const start = pathPoint(0);
+    const end = pathPoint(1);
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(end.x, end.y, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 나그네 위치 — 발이 길 위에 닿도록
+    const p = pathPoint(this.t);
+
+    // 좌우 방향 결정 (접선 × 진행방향). |dx|가 매우 작을 때는 직전 방향 유지
+    let facing = this.lastFacing;
+    const tangent = p.dx * this.direction;
+    if (Math.abs(p.dx) > 4) {
+      facing = tangent >= 0 ? 1 : -1;
+      this.lastFacing = facing;
+    }
+
+    // 걸음 페이즈 — 길의 t에 비례 (길이가 같으므로 시각적 보폭 동일)
+    const STEPS_PER_PATH = 38;
+    const walkPhase = (this.t * STEPS_PER_PATH) % 1;
+
+    drawTraveler(ctx, p.x, p.y, facing, walkPhase, this.moving);
+  }
+}
+
+function drawTraveler(ctx, x, y, facing, walkPhase, moving) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(facing, 1);
+
+  const phase = walkPhase * Math.PI * 2;
+  const legSwing = moving ? Math.sin(phase) * 3 : 1.2;
+  const armSwing = moving ? -Math.sin(phase) * 2 : 0;
+  const bob = moving ? Math.abs(Math.cos(phase)) * 0.7 : 0;
+  ctx.translate(0, -bob);
+
+  ctx.strokeStyle = '#e8d7b8';
+  ctx.fillStyle = '#e8d7b8';
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 머리
+  ctx.beginPath();
+  ctx.arc(0, -13, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 모자(작은 챙)
+  ctx.beginPath();
+  ctx.moveTo(-3.6, -14.8);
+  ctx.lineTo(3.6, -14.8);
+  ctx.stroke();
+
+  // 몸 (어깨 -10 → 엉덩이 -4)
+  ctx.beginPath();
+  ctx.moveTo(0, -10);
+  ctx.lineTo(0, -4);
+  ctx.stroke();
+
+  // 뒤쪽 팔 (보따리/배낭 방향)
+  ctx.beginPath();
+  ctx.moveTo(0, -9);
+  ctx.lineTo(-2 - armSwing, -5);
+  ctx.stroke();
+
+  // 앞쪽 팔 (지팡이)
+  ctx.beginPath();
+  ctx.moveTo(0, -9);
+  ctx.lineTo(2.5 + armSwing, -4);
+  ctx.stroke();
+
+  // 지팡이
+  ctx.strokeStyle = '#a88560';
+  ctx.beginPath();
+  ctx.moveTo(2.5 + armSwing, -4);
+  ctx.lineTo(3.6 + armSwing, 1);
+  ctx.stroke();
+  ctx.strokeStyle = '#e8d7b8';
+
+  // 작은 보따리(어깨)
+  ctx.beginPath();
+  ctx.arc(-2.8, -7.5, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 다리 — 발이 y=0에 닿도록
+  ctx.beginPath();
+  ctx.moveTo(0, -4);
+  ctx.lineTo(legSwing, 0);
+  ctx.moveTo(0, -4);
+  ctx.lineTo(-legSwing, 0);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// 카드 빌드
+const cardsEl = document.getElementById('cards');
+const instances = [];
+for (const d of DURATIONS) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="duration-label">${d.label}</div>
+    <div class="duration-copy">${d.copy}</div>
+    <div class="stage"><canvas></canvas></div>
+    <button>시작</button>
+  `;
+  cardsEl.appendChild(card);
+  instances.push(new Walker(card, d.ms));
+}
+
+let prevT = null;
+function tick(t) {
+  if (prevT === null) prevT = t;
+  let dt = t - prevT;
+  prevT = t;
+  if (dt > 50) dt = 50;
+  for (const w of instances) {
+    w.update(dt);
+    w.render();
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
